@@ -11,7 +11,6 @@
 #include <stdarg.h>
 #include <time.h>
 #include <pthread.h>
-#include <gmp.h>
 #include "types.h"
 
 // ============================================================================
@@ -51,11 +50,6 @@ void logger_set_level(LogLevel level);
 __attribute__((format(printf, 2, 3)))
 void log_message(LogLevel level, const char *format, ...);
 
-/**
- * Логирование с GMP числом
- */
-void log_message_mpz(LogLevel level, const char *format, const mpz_t value);
-
 // ============================================================================
 // Специализированные функции логирования
 // ============================================================================
@@ -63,24 +57,24 @@ void log_message_mpz(LogLevel level, const char *format, const mpz_t value);
 /**
  * Логирование начала поиска
  */
-void log_start(uint32_t n, const mpz_t initial_bound);
+void log_start(uint32_t n, value_t initial_bound);
 
 /**
  * Логирование прогресса поиска
  */
 void log_progress(uint32_t n, uint64_t nodes, double elapsed_sec,
-                  uint32_t depth, const mpz_t best_max);
+                  uint32_t depth, value_t best_max);
 
 /**
  * Логирование найденного решения
  */
-void log_solution_found(uint32_t n, const mpz_t max_value, const MpzSet *solution);
+void log_solution_found(uint32_t n, value_t max_value, const NumberSet *solution);
 
 /**
  * Логирование завершения поиска
  */
 void log_complete(uint32_t n, SolutionStatus status, double total_time,
-                  uint64_t total_nodes, const mpz_t max_value);
+                  uint64_t total_nodes, value_t max_value);
 
 /**
  * Логирование ошибки

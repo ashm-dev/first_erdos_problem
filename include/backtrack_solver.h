@@ -8,7 +8,6 @@
 #define ERDOS_BACKTRACK_SOLVER_H
 
 #include <stdbool.h>
-#include <gmp.h>
 #include "types.h"
 #include "subset_sum_manager.h"
 
@@ -20,8 +19,8 @@
  * Callback для найденного решения
  * Вызывается каждый раз при нахождении нового лучшего решения
  */
-typedef void (*SolutionCallback)(uint32_t n, const mpz_t max_value,
-                                  const MpzSet *solution, void *user_data);
+typedef void (*SolutionCallback)(uint32_t n, value_t max_value,
+                                  const NumberSet *solution, void *user_data);
 
 /**
  * Callback для прогресса
@@ -44,12 +43,12 @@ typedef struct {
     SubsetSumManager *manager;
 
     // Текущее лучшее решение
-    mpz_t best_max;
-    MpzSet best_solution;
+    value_t best_max;
+    NumberSet best_solution;
     bool has_solution;
 
     // Все оптимальные решения (если find_all_optimal = true)
-    MpzSet *all_optimal_solutions;
+    NumberSet *all_optimal_solutions;
     size_t optimal_count;
     size_t optimal_capacity;
 
@@ -60,10 +59,6 @@ typedef struct {
     SolutionCallback solution_callback;
     ProgressCallback progress_callback;
     void *callback_user_data;
-
-    // Временные переменные
-    mpz_t temp_candidate;
-    mpz_t temp_min_possible;
 } BacktrackSolver;
 
 // ============================================================================
@@ -109,10 +104,10 @@ void backtrack_solver_solve_all(BacktrackSolver *solver, SolutionResult *result)
 
 /**
  * Получение всех оптимальных решений
- * Возвращает количество решений, solutions - массив MpzSet
+ * Возвращает количество решений, solutions - массив NumberSet
  */
 size_t backtrack_solver_get_optimal_solutions(const BacktrackSolver *solver,
-                                              MpzSet **solutions);
+                                              NumberSet **solutions);
 
 /**
  * Получение статистики поиска
@@ -127,12 +122,12 @@ void backtrack_solver_get_stats(const BacktrackSolver *solver, SearchStats *stat
  * Вычисление начальной верхней границы для N
  * По умолчанию: 2^(n-1) + 1
  */
-void compute_initial_bound(uint32_t n, mpz_t result);
+value_t compute_initial_bound(uint32_t n);
 
 /**
  * Проверка, является ли множество B-последовательностью
  * (все суммы подмножеств различны)
  */
-bool is_valid_b_sequence(const MpzSet *set);
+bool is_valid_b_sequence(const NumberSet *set);
 
 #endif // ERDOS_BACKTRACK_SOLVER_H

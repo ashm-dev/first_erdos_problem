@@ -11,7 +11,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <getopt.h>
-#include <gmp.h>
+#include <inttypes.h>
 
 #include "../include/types.h"
 #include "../include/logger.h"
@@ -96,19 +96,17 @@ static void* worker_thread(void *arg) {
         .first_only = task->first_only,
         .manager_type = manager_type,
         .log_interval_sec = ERDOS_LOG_INTERVAL_SEC,
-        .stop_flag = task->stop_flag
+        .stop_flag = task->stop_flag,
+        .initial_bound = 0
     };
-    mpz_init_set_ui(config.initial_bound, 0);
 
     // Пробуем получить границу из БД
     if (g_db_manager) {
-        mpz_t bound;
-        mpz_init(bound);
-        if (db_manager_get_best_bound(g_db_manager, task->n, bound)) {
-            mpz_set(config.initial_bound, bound);
+        value_t bound;
+        if (db_manager_get_best_bound(g_db_manager, task->n, &bound)) {
+            config.initial_bound = bound;
             LOG_INFO("N=%u: используем границу из БД", task->n);
         }
-        mpz_clear(bound);
     }
 
     // Создаем и запускаем решатель
@@ -127,7 +125,7 @@ static void* worker_thread(void *arg) {
 
         // Сохраняем все оптимальные решения если нужно
         if (task->find_all_optimal) {
-            MpzSet *optimal_sets;
+            NumberSet *optimal_sets;
             size_t count = backtrack_solver_get_optimal_solutions(solver, &optimal_sets);
             if (count > 0) {
                 db_manager_save_optimal_sets(g_db_manager, task->n, optimal_sets, count);
@@ -137,7 +135,6 @@ static void* worker_thread(void *arg) {
     }
 
     backtrack_solver_destroy(solver);
-    mpz_clear(config.initial_bound);
 
     worker->completed = true;
     return NULL;

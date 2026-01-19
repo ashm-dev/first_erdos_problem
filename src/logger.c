@@ -9,6 +9,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <locale.h>
+#include <inttypes.h>
 #include "../include/logger.h"
 
 // ============================================================================
@@ -41,7 +42,7 @@ static void get_timestamp(char *buffer, size_t size) {
 
 static void format_number_with_underscores(char *buffer, size_t size, uint64_t value) {
     char temp[64];
-    snprintf(temp, sizeof(temp), "%lu", value);
+    snprintf(temp, sizeof(temp), "%" PRIu64, value);
 
     size_t len = strlen(temp);
     size_t out_idx = 0;
@@ -125,63 +126,38 @@ void log_message(LogLevel level, const char *format, ...) {
     pthread_mutex_unlock(&g_log_mutex);
 }
 
-void log_message_mpz(LogLevel level, const char *format, const mpz_t value) {
-    if (level < g_log_level) {
-        return;
-    }
-
-    char *value_str = mpz_get_str(NULL, 10, value);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-nonliteral"
-    log_message(level, format, value_str);
-#pragma GCC diagnostic pop
-    free(value_str);
-}
-
 // ============================================================================
 // Специализированные функции логирования
 // ============================================================================
 
-void log_start(uint32_t n, const mpz_t initial_bound) {
-    char *bound_str = mpz_get_str(NULL, 10, initial_bound);
-    log_message(LOG_LEVEL_INFO, "Starting N=%u, upper_bound=%s", n, bound_str);
-    free(bound_str);
+void log_start(uint32_t n, value_t initial_bound) {
+    log_message(LOG_LEVEL_INFO, "Starting N=%u, upper_bound=%" PRIu64, n, initial_bound);
 }
 
 void log_progress(uint32_t n, uint64_t nodes, double elapsed_sec,
-                  uint32_t depth, const mpz_t best_max) {
+                  uint32_t depth, value_t best_max) {
     char nodes_str[64];
     format_number_with_underscores(nodes_str, sizeof(nodes_str), nodes);
 
-    char *best_str = mpz_get_str(NULL, 10, best_max);
-
     log_message(LOG_LEVEL_INFO,
-                "N=%u: nodes=%s, time=%.1fs, depth=%u, best=%s",
-                n, nodes_str, elapsed_sec, depth, best_str);
-
-    free(best_str);
+                "N=%u: nodes=%s, time=%.1fs, depth=%u, best=%" PRIu64,
+                n, nodes_str, elapsed_sec, depth, best_max);
 }
 
-void log_solution_found(uint32_t n, const mpz_t max_value, const MpzSet *solution) {
+void log_solution_found(uint32_t n, value_t max_value, const NumberSet *solution) {
     (void)solution;  // Не выводим множество, как в Python
-    char *max_str = mpz_get_str(NULL, 10, max_value);
-
-    log_message(LOG_LEVEL_INFO, "Found better: N=%u, max=%s", n, max_str);
-
-    free(max_str);
+    log_message(LOG_LEVEL_INFO, "Found better: N=%u, max=%" PRIu64, n, max_value);
 }
 
 void log_complete(uint32_t n, SolutionStatus status, double total_time,
-                  uint64_t total_nodes, const mpz_t max_value) {
+                  uint64_t total_nodes, value_t max_value) {
     char nodes_str[64];
     format_number_with_underscores(nodes_str, sizeof(nodes_str), total_nodes);
 
     if (status == SOLUTION_STATUS_OPTIMAL) {
-        char *max_str = mpz_get_str(NULL, 10, max_value);
         log_message(LOG_LEVEL_INFO,
-                    "Finished N=%u, max=%s, nodes=%s, time=%.2fs",
-                    n, max_str, nodes_str, total_time);
-        free(max_str);
+                    "Finished N=%u, max=%" PRIu64 ", nodes=%s, time=%.2fs",
+                    n, max_value, nodes_str, total_time);
     } else if (status == SOLUTION_STATUS_INTERRUPTED) {
         log_message(LOG_LEVEL_INFO,
                     "Interrupted N=%u, nodes=%s, time=%.2fs",

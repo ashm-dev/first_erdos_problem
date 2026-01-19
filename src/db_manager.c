@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include "../include/db_manager.h"
 #include "../include/logger.h"
 
@@ -21,7 +22,7 @@ static const char *SQL_CREATE_TABLES =
     "CREATE TABLE IF NOT EXISTS results ("
     "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
     "    n INTEGER NOT NULL,"
-    "    max_value TEXT NOT NULL,"
+    "    max_value INTEGER NOT NULL,"
     "    solution_set TEXT NOT NULL,"
     "    computation_time REAL NOT NULL,"
     "    status TEXT NOT NULL,"
@@ -36,7 +37,7 @@ static const char *SQL_CREATE_TABLES =
     "CREATE TABLE IF NOT EXISTS optimal_sets ("
     "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
     "    n INTEGER NOT NULL,"
-    "    max_value TEXT NOT NULL,"
+    "    max_value INTEGER NOT NULL,"
     "    solution_set TEXT NOT NULL,"
     "    UNIQUE(n, solution_set)"
     ");"
@@ -55,10 +56,10 @@ static const char *SQL_INSERT_OPTIMAL =
 static const char *SQL_SELECT_RESULT =
     "SELECT max_value, solution_set, computation_time, status, nodes_explored, timestamp "
     "FROM results WHERE n = ? AND status = 'OPTIMAL' "
-    "ORDER BY CAST(max_value AS INTEGER) ASC LIMIT 1;";
+    "ORDER BY max_value ASC LIMIT 1;";
 
 static const char *SQL_SELECT_BEST_BOUND =
-    "SELECT MIN(CAST(max_value AS INTEGER)) FROM results WHERE n = ?;";
+    "SELECT MIN(max_value) FROM results WHERE n = ?;";
 
 static const char *SQL_HAS_OPTIMAL =
     "SELECT 1 FROM results WHERE n = ? AND status = 'OPTIMAL' LIMIT 1;";
@@ -93,19 +94,15 @@ static const char *SQL_GET_STATS =
 /**
  * Сериализация множества в строку JSON
  */
-static char* serialize_mpz_set(const MpzSet *set) {
+static char* serialize_number_set(const NumberSet *set) {
     if (set->size == 0) {
         char *result = malloc(3);
         strcpy(result, "[]");
         return result;
     }
 
-    // Оценка размера
-    size_t buf_size = 3;
-    for (size_t i = 0; i < set->size; i++) {
-        buf_size += mpz_sizeinbase(set->elements[i], 10) + 3;
-    }
-
+    // Оценка размера (max 20 цифр на число + ", ")
+    size_t buf_size = 3 + set->size * 22;
     char *result = malloc(buf_size);
     char *ptr = result;
     *ptr++ = '[';
@@ -115,11 +112,7 @@ static char* serialize_mpz_set(const MpzSet *set) {
             *ptr++ = ',';
             *ptr++ = ' ';
         }
-        char *num_str = mpz_get_str(NULL, 10, set->elements[i]);
-        size_t len = strlen(num_str);
-        memcpy(ptr, num_str, len);
-        ptr += len;
-        free(num_str);
+        ptr += sprintf(ptr, "%" PRIu64, set->elements[i]);
     }
 
     *ptr++ = ']';
@@ -131,9 +124,9 @@ static char* serialize_mpz_set(const MpzSet *set) {
 /**
  * Десериализация строки JSON в множество
  */
-static void deserialize_mpz_set(const char *str, MpzSet *set) {
-    mpz_set_clear(set);
-    mpz_set_init(set, 16);
+static void deserialize_number_set(const char *str, NumberSet *set) {
+    number_set_clear(set);
+    number_set_init(set, 16);
 
     if (!str || strlen(str) < 2) return;
 
@@ -141,26 +134,21 @@ static void deserialize_mpz_set(const char *str, MpzSet *set) {
     const char *ptr = str;
     while (*ptr && (*ptr == '[' || *ptr == ' ')) ptr++;
 
-    mpz_t value;
-    mpz_init(value);
-
     while (*ptr && *ptr != ']') {
         // Пропускаем пробелы и запятые
         while (*ptr && (*ptr == ' ' || *ptr == ',')) ptr++;
         if (*ptr == ']' || !*ptr) break;
 
         // Читаем число
-        const char *start = ptr;
-        while (*ptr && *ptr != ',' && *ptr != ']' && *ptr != ' ') ptr++;
-
-        char *num_str = strndup(start, (size_t)(ptr - start));
-        if (mpz_set_str(value, num_str, 10) == 0) {
-            mpz_set_push(set, value);
+        char *end;
+        value_t value = strtoull(ptr, &end, 10);
+        if (end != ptr) {
+            number_set_push(set, value);
+            ptr = end;
+        } else {
+            break;
         }
-        free(num_str);
     }
-
-    mpz_clear(value);
 }
 
 // ============================================================================
@@ -239,11 +227,10 @@ bool db_manager_save_result(DatabaseManager *manager, const SolutionResult *resu
         return false;
     }
 
-    char *max_value_str = mpz_get_str(NULL, 10, result->max_value);
-    char *solution_str = serialize_mpz_set(&result->solution_set);
+    char *solution_str = serialize_number_set(&result->solution_set);
 
     sqlite3_bind_int(stmt, 1, (int)result->n);
-    sqlite3_bind_text(stmt, 2, max_value_str, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)result->max_value);
     sqlite3_bind_text(stmt, 3, solution_str, -1, SQLITE_TRANSIENT);
     sqlite3_bind_double(stmt, 4, result->computation_time);
     sqlite3_bind_text(stmt, 5, solution_status_to_string(result->status), -1, SQLITE_STATIC);
@@ -258,7 +245,6 @@ bool db_manager_save_result(DatabaseManager *manager, const SolutionResult *resu
     }
 
     sqlite3_finalize(stmt);
-    free(max_value_str);
     free(solution_str);
 
     pthread_mutex_unlock(&manager->mutex);
@@ -266,7 +252,7 @@ bool db_manager_save_result(DatabaseManager *manager, const SolutionResult *resu
 }
 
 bool db_manager_save_optimal_sets(DatabaseManager *manager, uint32_t n,
-                                  const MpzSet *sets, size_t count) {
+                                  const NumberSet *sets, size_t count) {
     if (!manager || !manager->initialized) return false;
 
     pthread_mutex_lock(&manager->mutex);
@@ -285,20 +271,18 @@ bool db_manager_save_optimal_sets(DatabaseManager *manager, uint32_t n,
     bool success = true;
     for (size_t i = 0; i < count; i++) {
         // Находим максимум
-        mpz_t max_val;
-        mpz_init_set_ui(max_val, 0);
+        value_t max_val = 0;
         for (size_t j = 0; j < sets[i].size; j++) {
-            if (mpz_cmp(sets[i].elements[j], max_val) > 0) {
-                mpz_set(max_val, sets[i].elements[j]);
+            if (sets[i].elements[j] > max_val) {
+                max_val = sets[i].elements[j];
             }
         }
 
-        char *max_str = mpz_get_str(NULL, 10, max_val);
-        char *solution_str = serialize_mpz_set(&sets[i]);
+        char *solution_str = serialize_number_set(&sets[i]);
 
         sqlite3_reset(stmt);
         sqlite3_bind_int(stmt, 1, (int)n);
-        sqlite3_bind_text(stmt, 2, max_str, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 2, (sqlite3_int64)max_val);
         sqlite3_bind_text(stmt, 3, solution_str, -1, SQLITE_TRANSIENT);
 
         rc = sqlite3_step(stmt);
@@ -306,8 +290,6 @@ bool db_manager_save_optimal_sets(DatabaseManager *manager, uint32_t n,
             success = false;
         }
 
-        mpz_clear(max_val);
-        free(max_str);
         free(solution_str);
     }
 
@@ -339,12 +321,10 @@ bool db_manager_get_result(DatabaseManager *manager, uint32_t n, SolutionResult 
     bool found = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         result->n = n;
-
-        const char *max_str = (const char *)sqlite3_column_text(stmt, 0);
-        mpz_set_str(result->max_value, max_str, 10);
+        result->max_value = (value_t)sqlite3_column_int64(stmt, 0);
 
         const char *solution_str = (const char *)sqlite3_column_text(stmt, 1);
-        deserialize_mpz_set(solution_str, &result->solution_set);
+        deserialize_number_set(solution_str, &result->solution_set);
 
         result->computation_time = sqlite3_column_double(stmt, 2);
 
@@ -373,7 +353,7 @@ bool db_manager_get_result(DatabaseManager *manager, uint32_t n, SolutionResult 
     return found;
 }
 
-bool db_manager_get_best_bound(DatabaseManager *manager, uint32_t n, mpz_t bound) {
+bool db_manager_get_best_bound(DatabaseManager *manager, uint32_t n, value_t *bound) {
     if (!manager || !manager->initialized) return false;
 
     pthread_mutex_lock(&manager->mutex);
@@ -389,7 +369,7 @@ bool db_manager_get_best_bound(DatabaseManager *manager, uint32_t n, mpz_t bound
 
     bool found = false;
     if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
-        mpz_set_si(bound, sqlite3_column_int64(stmt, 0));
+        *bound = (value_t)sqlite3_column_int64(stmt, 0);
         found = true;
     }
 
@@ -443,7 +423,7 @@ uint32_t db_manager_get_last_n(DatabaseManager *manager) {
     return last_n;
 }
 
-size_t db_manager_get_optimal_sets(DatabaseManager *manager, uint32_t n, MpzSet **sets) {
+size_t db_manager_get_optimal_sets(DatabaseManager *manager, uint32_t n, NumberSet **sets) {
     if (!manager || !manager->initialized) {
         *sets = NULL;
         return 0;
@@ -475,9 +455,9 @@ size_t db_manager_get_optimal_sets(DatabaseManager *manager, uint32_t n, MpzSet 
     }
 
     // Выделяем память
-    *sets = malloc(count * sizeof(MpzSet));
+    *sets = malloc(count * sizeof(NumberSet));
     for (size_t i = 0; i < count; i++) {
-        mpz_set_init(&(*sets)[i], 16);
+        number_set_init(&(*sets)[i], 16);
     }
 
     // Читаем данные
@@ -485,7 +465,7 @@ size_t db_manager_get_optimal_sets(DatabaseManager *manager, uint32_t n, MpzSet 
     size_t idx = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW && idx < count) {
         const char *solution_str = (const char *)sqlite3_column_text(stmt, 0);
-        deserialize_mpz_set(solution_str, &(*sets)[idx]);
+        deserialize_number_set(solution_str, &(*sets)[idx]);
         idx++;
     }
 
@@ -537,12 +517,10 @@ size_t db_manager_get_all_results(DatabaseManager *manager, SolutionResult **res
         SolutionResult *r = &(*results)[idx];
 
         r->n = (uint32_t)sqlite3_column_int(stmt, 0);
-
-        const char *max_str = (const char *)sqlite3_column_text(stmt, 1);
-        mpz_set_str(r->max_value, max_str, 10);
+        r->max_value = (value_t)sqlite3_column_int64(stmt, 1);
 
         const char *solution_str = (const char *)sqlite3_column_text(stmt, 2);
-        deserialize_mpz_set(solution_str, &r->solution_set);
+        deserialize_number_set(solution_str, &r->solution_set);
 
         r->computation_time = sqlite3_column_double(stmt, 3);
 
@@ -606,7 +584,13 @@ size_t db_manager_get_all_optimal_summary(DatabaseManager *manager, OptimalSumma
         OptimalSummary *s = &(*summary)[idx];
 
         s->n = (uint32_t)sqlite3_column_int(stmt, 0);
-        s->max_value_str = strdup((const char *)sqlite3_column_text(stmt, 1));
+
+        // max_value теперь INTEGER
+        value_t max_val = (value_t)sqlite3_column_int64(stmt, 1);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%" PRIu64, max_val);
+        s->max_value_str = strdup(buf);
+
         s->solutions_count = (size_t)sqlite3_column_int(stmt, 2);
         s->computation_time = sqlite3_column_double(stmt, 3);
         s->status = SOLUTION_STATUS_OPTIMAL;
@@ -665,17 +649,15 @@ void db_manager_print_result(DatabaseManager *manager, uint32_t n) {
     solution_result_init(&result);
 
     if (db_manager_get_result(manager, n, &result)) {
-        char *max_str = mpz_get_str(NULL, 10, result.max_value);
-        char *set_str = mpz_set_to_string(&result.solution_set);
+        char *set_str = number_set_to_string(&result.solution_set);
 
         printf("N=%u:\n", n);
-        printf("  Максимум: %s\n", max_str);
+        printf("  Максимум: %" PRIu64 "\n", result.max_value);
         printf("  Множество: %s\n", set_str);
         printf("  Время: %.2f сек\n", result.computation_time);
-        printf("  Узлов: %lu\n", result.nodes_explored);
+        printf("  Узлов: %" PRIu64 "\n", result.nodes_explored);
         printf("  Статус: %s\n", solution_status_to_string(result.status));
 
-        free(max_str);
         free(set_str);
     } else {
         printf("Результат для N=%u не найден\n", n);

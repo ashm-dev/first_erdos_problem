@@ -137,16 +137,6 @@ endif()
 # Поиск зависимостей
 # ============================================================================
 
-# GMP
-find_library(GMP_LIBRARY gmp REQUIRED)
-find_path(GMP_INCLUDE_DIR gmp.h REQUIRED)
-
-if(NOT GMP_LIBRARY OR NOT GMP_INCLUDE_DIR)
-    message(FATAL_ERROR "GMP не найден. Установите: sudo pacman -S gmp")
-endif()
-
-message(STATUS "GMP найден: ${GMP_LIBRARY}")
-
 # SQLite3
 find_package(SQLite3 REQUIRED)
 message(STATUS "SQLite3 найден: ${SQLite3_LIBRARIES}")
@@ -223,12 +213,10 @@ add_executable(erdos_solver ${SOURCES} ${HEADERS})
 
 target_include_directories(erdos_solver PRIVATE
     ${CMAKE_SOURCE_DIR}/include
-    ${GMP_INCLUDE_DIR}
     ${SQLite3_INCLUDE_DIRS}
 )
 
 target_link_libraries(erdos_solver PRIVATE
-    ${GMP_LIBRARY}
     ${SQLite3_LIBRARIES}
     Threads::Threads
     m
@@ -285,7 +273,7 @@ endif()
 find_program(CLANG_TIDY clang-tidy)
 if(CLANG_TIDY)
     add_custom_target(tidy
-        COMMAND ${CLANG_TIDY} ${SOURCES} -- -I${CMAKE_SOURCE_DIR}/include -I${GMP_INCLUDE_DIR}
+        COMMAND ${CLANG_TIDY} ${SOURCES} -- -I${CMAKE_SOURCE_DIR}/include
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Статический анализ с помощью clang-tidy"
     )

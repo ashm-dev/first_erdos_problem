@@ -10,7 +10,6 @@
 #define ERDOS_SUBSET_SUM_MANAGER_H
 
 #include <stdbool.h>
-#include <gmp.h>
 #include "types.h"
 
 // ============================================================================
@@ -21,7 +20,7 @@
  * Узел хеш-таблицы
  */
 typedef struct HashNode {
-    mpz_t value;
+    value_t value;
     struct HashNode *next;
 } HashNode;
 
@@ -30,16 +29,16 @@ typedef struct HashNode {
  */
 typedef struct {
     HashNode **buckets;
-    HashNode *pool;      // Список переиспользуемых узлов (Object Pool)
+    HashNode *pool;      // Пул переиспользуемых узлов
     size_t bucket_count;
     size_t size;
-} MpzHashSet;
+} IntHashSet;
 
 /**
  * История добавленных сумм (для отката)
  */
 typedef struct {
-    mpz_t *sums;
+    value_t *sums;
     size_t count;
     size_t capacity;
 } SumsHistory;
@@ -64,14 +63,14 @@ typedef struct {
     ManagerType type;
 
     // Текущие элементы множества
-    MpzSet elements;
+    NumberSet elements;
 
     // Для быстрого режима
-    MpzHashSet *sums_set;        // Все текущие суммы
+    IntHashSet *sums_set;        // Все текущие суммы
     HistoryStack *history;       // История для отката
 
-    // Временные переменные (для избежания повторных аллокаций)
-    mpz_t temp_sum;
+    // Временная переменная для итеративного режима
+    value_t temp_sum;
 } SubsetSumManager;
 
 // ============================================================================
@@ -81,32 +80,33 @@ typedef struct {
 /**
  * Создание хеш-таблицы
  */
-MpzHashSet* mpz_hashset_create(size_t initial_buckets);
+IntHashSet* int_hashset_create(size_t initial_buckets);
 
 /**
  * Освобождение хеш-таблицы
  */
-void mpz_hashset_destroy(MpzHashSet *set);
+void int_hashset_destroy(IntHashSet *set);
 
 /**
  * Добавление значения в хеш-таблицу
+ * Возвращает true если добавлено (значения не было), false если уже есть
  */
-bool mpz_hashset_add(MpzHashSet *set, const mpz_t value);
+bool int_hashset_add(IntHashSet *set, value_t value);
 
 /**
  * Проверка наличия значения
  */
-bool mpz_hashset_contains(const MpzHashSet *set, const mpz_t value);
+bool int_hashset_contains(const IntHashSet *set, value_t value);
 
 /**
  * Удаление значения из хеш-таблицы
  */
-bool mpz_hashset_remove(MpzHashSet *set, const mpz_t value);
+bool int_hashset_remove(IntHashSet *set, value_t value);
 
 /**
  * Очистка хеш-таблицы
  */
-void mpz_hashset_clear(MpzHashSet *set);
+void int_hashset_clear(IntHashSet *set);
 
 // ============================================================================
 // Функции менеджера сумм
@@ -132,7 +132,7 @@ void subset_sum_manager_reset(SubsetSumManager *manager);
  * Возвращает true если элемент добавлен (нет коллизий),
  * false если есть коллизия (элемент не добавлен)
  */
-bool subset_sum_manager_add_element(SubsetSumManager *manager, const mpz_t value);
+bool subset_sum_manager_add_element(SubsetSumManager *manager, value_t value);
 
 /**
  * Удаление последнего добавленного элемента (откат)
@@ -147,13 +147,12 @@ size_t subset_sum_manager_size(const SubsetSumManager *manager);
 /**
  * Получение элемента по индексу
  */
-void subset_sum_manager_get_element(const SubsetSumManager *manager,
-                                    size_t index, mpz_t result);
+value_t subset_sum_manager_get_element(const SubsetSumManager *manager, size_t index);
 
 /**
  * Получение копии текущего множества
  */
-void subset_sum_manager_get_elements(const SubsetSumManager *manager, MpzSet *result);
+void subset_sum_manager_get_elements(const SubsetSumManager *manager, NumberSet *result);
 
 // ============================================================================
 // Внутренние функции (для итеративного режима)
@@ -164,6 +163,6 @@ void subset_sum_manager_get_elements(const SubsetSumManager *manager, MpzSet *re
  * Перебирает все подмножества текущих элементов
  */
 bool subset_sum_manager_has_collision_iterative(SubsetSumManager *manager,
-                                                const mpz_t new_value);
+                                                value_t new_value);
 
 #endif // ERDOS_SUBSET_SUM_MANAGER_H

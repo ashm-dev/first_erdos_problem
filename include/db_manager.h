@@ -50,7 +50,7 @@ bool db_manager_save_result(DatabaseManager *manager, const SolutionResult *resu
  * Сохранение всех оптимальных множеств для N
  */
 bool db_manager_save_optimal_sets(DatabaseManager *manager, uint32_t n,
-                                  const MpzSet *sets, size_t count);
+                                  const NumberSet *sets, size_t count);
 
 // ============================================================================
 // Функции загрузки
@@ -67,7 +67,7 @@ bool db_manager_get_result(DatabaseManager *manager, uint32_t n,
  * Получение лучшей известной границы для N
  * Возвращает true если граница найдена
  */
-bool db_manager_get_best_bound(DatabaseManager *manager, uint32_t n, mpz_t bound);
+bool db_manager_get_best_bound(DatabaseManager *manager, uint32_t n, value_t *bound);
 
 /**
  * Проверка наличия оптимального решения для N
@@ -82,10 +82,10 @@ uint32_t db_manager_get_last_n(DatabaseManager *manager);
 
 /**
  * Получение всех оптимальных множеств для N
- * Возвращает количество множеств, sets - массив MpzSet (нужно освободить)
+ * Возвращает количество множеств, sets - массив NumberSet (нужно освободить)
  */
 size_t db_manager_get_optimal_sets(DatabaseManager *manager, uint32_t n,
-                                   MpzSet **sets);
+                                   NumberSet **sets);
 
 /**
  * Получение всех результатов
